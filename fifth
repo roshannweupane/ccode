@@ -1,0 +1,184 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_USERS 50
+#define PORTS 4
+#define MAX_NAME 30
+
+// -------------------------------
+// DATA STRUCTURES
+// -------------------------------
+
+typedef struct {
+    char name[MAX_NAME];
+    int timeRequested;       // When user asked to charge
+    int timeConnected;       // When user actually started charging
+    int hoggingEvents;       // Number of times user “replugged”
+    int isCharging;          // 1 if charging, 0 otherwise
+} User;
+
+User users[MAX_USERS];
+int userCount = 0;
+
+int activePorts[PORTS]; // stores index of users occupying ports; -1 means empty
+
+// -------------------------------
+// UTILITY FUNCTIONS
+// -------------------------------
+
+// Get current "simulation time"
+int getTime() {
+    return (int)time(NULL) % 100000; // simple small timestamp
+}
+
+// Add a new user
+int addUser(const char* name) {
+    strcpy(users[userCount].name, name);
+    users[userCount].timeRequested = getTime();
+    users[userCount].timeConnected = -1;
+    users[userCount].hoggingEvents = 0;
+    users[userCount].isCharging = 0;
+    return userCount++;
+}
+
+// Check if user is already charging
+int isCharging(int id) {
+    for (int i = 0; i < PORTS; i++) {
+        if (activePorts[i] == id)
+            return 1;
+    }
+    return 0;
+}
+
+// Find open port or return -1
+int findOpenPort() {
+    for (int i = 0; i < PORTS; i++)
+        if (activePorts[i] == -1)
+            return i;
+    return -1;
+}
+
+// Count people who requested earlier
+int countEarlier(int userId) {
+    int count = 0;
+    for (int i = 0; i < userCount; i++) {
+        if (users[i].timeConnected == -1 &&
+            users[i].timeRequested < users[userId].timeRequested)
+            count++;
+    }
+    return count;
+}
+
+// Detect hogging based on repeated replugging
+int detectHogging(int userId) {
+    return users[userId].hoggingEvents >= 2; // threshold
+}
+
+// -------------------------------
+// CORE CHARGING STATION LOGIC
+// -------------------------------
+
+// Attempt to plug user in
+void requestCharge(int id) {
+    int open = findOpenPort();
+
+    if (isCharging(id)) {
+        // Replugging detected → this is hogging behavior
+        printf("[WARNING] %s unplugged & replugged to stay ahead!\n", users[id].name);
+        users[id].hoggingEvents++;
+    }
+
+    // Check if user is hogging
+    if (detectHogging(id)) {
+        printf("[BLOCKED] %s is temporarily banned for hogging the charging station.\n",
+               users[id].name);
+        return;
+    }
+
+    // If open port available
+    if (open != -1) {
+        activePorts[open] = id;
+        users[id].isCharging = 1;
+        users[id].timeConnected = getTime();
+        printf("[CONNECTED] %s started charging at port %d\n", users[id].name, open);
+    }
+
+    // No port → check if someone is abusing queue priority
+    else {
+        int ahead = countEarlier(id);
+        if (ahead > 0) {
+            printf("[WAIT] %s added to queue. %d people ahead.\n",
+                   users[id].name, ahead);
+        } else {
+            printf("[PRIORITY QUEUE] %s is next when a port frees up.\n", users[id].name);
+        }
+    }
+}
+
+// User finishes charging → free port
+void finishCharging(int id) {
+    for (int i = 0; i < PORTS; i++) {
+        if (activePorts[i] == id) {
+            activePorts[i] = -1;
+            users[id].isCharging = 0;
+            printf("[DONE] %s finished charging and freed port %d\n", users[id].name, i);
+            return;
+        }
+    }
+}
+
+// -------------------------------
+// DISPLAY FUNCTIONS
+// -------------------------------
+
+void showStatus() {
+    printf("\n===== CHARGING STATION STATUS =====\n");
+    for (int i = 0; i < PORTS; i++) {
+        if (activePorts[i] == -1)
+            printf("Port %d: [EMPTY]\n", i);
+        else
+            printf("Port %d: %s (Hogging: %d)\n",
+                   i,
+                   users[activePorts[i]].name,
+                   users[activePorts[i]].hoggingEvents);
+    }
+    printf("===================================\n");
+}
+
+// -------------------------------
+// MAIN SIMULATION
+// -------------------------------
+
+int main() {
+    // Initialize ports
+    for (int i = 0; i < PORTS; i++)
+        activePorts[i] = -1;
+
+    printf("=== Public Charging Station Anti-Hogging System ===\n");
+
+    // Demo scenario
+    int alice = addUser("Alice");
+    int bob = addUser("Bob");
+    int carol = addUser("Carol");
+    int dave = addUser("Dave");
+    int eve = addUser("Eve");
+
+    requestCharge(alice);
+    requestCharge(bob);
+    requestCharge(carol);
+    requestCharge(dave);
+
+    showStatus();
+
+    // Eve tries to bypass queue repeatedly
+    requestCharge(eve); // must wait
+    finishCharging(bob); // frees port
+    requestCharge(eve); // replug attempt #1
+    requestCharge(eve); // replug attempt #2 → should get banned
+
+    showStatus();
+
+    return 0;
+}
