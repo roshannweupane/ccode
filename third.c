@@ -10,7 +10,7 @@ struct Student {
 
 void addStudent(FILE *fp) {
     struct Student s;
-    printf("Enter Student ID: ");
+    printf("Enter Student of theirnID: ");
     scanf("%d", &s.id);
     printf("Enter Student Name: ");
     scanf("%s", s.name);
